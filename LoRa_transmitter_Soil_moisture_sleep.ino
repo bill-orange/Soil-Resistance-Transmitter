@@ -8,24 +8,26 @@
   ----------------------------------------------------------------------------------------
   William Webb (c) 2025
   04/02/2025 Working - Tested
+  04/03/2025 Added Watchdog Reset - Untested
   */
 
+#include <esp_task_wdt.h>
 #include <esp_sleep.h>
-#include <CRC8.h>            // CRC8 library
-#include <CRC.h>             // CRC library
+#include <CRC8.h>  // CRC8 library
+#include <CRC.h>   // CRC library
 
 #define LED_PIN 21              // only likely correct for T8 board
-#define DURATION 200           // how long to display message and allow for Tx Rx change
+#define DURATION 200            // how long to display message and allow for Tx Rx change
 #define ADDRESS 1               // Address of receiving LoRa.  Must be in same Network
 #define loRABAUD 115200         // set for IDE value
 #define IDEBAUD 115200          // Bsaud rate for ID system Monitor
 #define MYPORT_TX 22            // Transmit pin for software serial
-#define MYPORT_RX 27           // Receive pin for software serial
+#define MYPORT_RX 27            // Receive pin for software serial
 #define SENSORIN 34             // Moisture Sensor digital
 #define ANALOG_PIN 35           // Moisture Sensor Analog
 #define RxBufferSize 2048       // Increase buffer for stability
 #define uS_TO_S_FACTOR 1000000  // Conversion factor for microseconds to seconds
-#define TIME_TO_SLEEP 1800      // Time in seconds (1/2 hour)
+#define TIME_TO_SLEEP 1800     // Time in seconds (30 min)
 //#define TIME_TO_SLEEP 20  // Time in seconds (20 seconds)
 
 
@@ -47,10 +49,13 @@ CRC8 crc;  // CRC calculator Constructor 8-Bit
 
 void setup() {
 
+  esp_task_wdt_add(NULL);
+  delay(100);
   Serial.begin(IDEBAUD);
   Serial2.begin(loRABAUD, SERIAL_8N1, MYPORT_RX, MYPORT_TX);
   Serial.setRxBufferSize(RxBufferSize);
   Serial2.setRxBufferSize(RxBufferSize);
+  delay(100);
 
   pinMode(LED_PIN, OUTPUT);  // Initialize LED it will blink with sucessful data exchange
 
@@ -64,8 +69,8 @@ void setup() {
   Serial2.println("AT+RESET");
   delay(1000);
   Serial2.println("AT");
-   
-   do {
+
+  do {
     if (Serial2.available()) {
       incomingstring_check = Serial2.readString();
     }
@@ -88,19 +93,22 @@ void setup() {
   smartBlink(200);
   soilSend();
 
+  // **Reset or disable the watchdog timer here**
+  esp_task_wdt_reset();       // Reset watchdog to prevent it from triggering
+  esp_task_wdt_delete(NULL);  // Optionally disable it if not required
+
   // Put the ESP32 into deep sleep
-  Serial.println("Going to sleep for an half an hour...");
+  Serial.print("Going to sleep for ");
+  Serial.print(TIME_TO_SLEEP/60);
+  Serial.println(" minuites....");
   esp_sleep_enable_timer_wakeup(TIME_TO_SLEEP * uS_TO_S_FACTOR);
   esp_deep_sleep_start();
-
-
-  
 }
 
 /*---------------------------------------------- LOOP ------------------------------------------------*/
 
 void loop() {
-/*
+  /*
   //  transmit phrase and environmental info
   soilSend();  // Transmits environmental data
   delay(10000);
@@ -180,7 +188,8 @@ int DataReceiver() {
   delay(DURATION);  // Needed to be ready to receive
   if (Serial2.available()) {
     incomingstring = Serial2.readString();  // Get checksum
-    Serial.print ("incoming String: ");Serial.println (incomingstring);
+    Serial.print("incoming String: ");
+    Serial.println(incomingstring);
   }
 
   int crcReceived = parseMessage(incomingstring);  // Parse out CRC from incoming string
